@@ -154,8 +154,19 @@ class VisualServoingNode(Node):
 
     def robot_state_callback(self, msg: XYpos) -> None:
         """Update current joint feedback and initialize desired angles once."""
-        self.q1_curr = float(msg.qpos1)
-        self.q2_curr = float(msg.qpos2)
+        q1 = float(msg.qpos1)
+        q2 = float(msg.qpos2)
+        if not (math.isfinite(q1) and math.isfinite(q2)):
+            return
+        if abs(q1) > 20.0 or abs(q2) > 20.0:
+            self.get_logger().warning(
+                f'Ignoring corrupted robot_state: q1={q1}, q2={q2}',
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        self.q1_curr = q1
+        self.q2_curr = q2
         if self.q1_des is None or self.q2_des is None:
             self.q1_des = self.q1_curr
             self.q2_des = self.q2_curr
