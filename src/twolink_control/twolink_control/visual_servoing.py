@@ -102,24 +102,24 @@ class VisualServoingNode(Node):
             self.declare_parameter('camera_yaw_offset', 0.0).value
         )
 
-        # Visual servoing control parameters (tuned for responsive, smooth tracking)
+        # Visual servoing control parameters (fast response + calm near target)
         self.target_distance = float(
             self.declare_parameter('target_distance', 0.20).value
         )
-        self.kp_dist = float(self.declare_parameter('kp_dist', 1.0).value)
-        self.kp_lat = float(self.declare_parameter('kp_lat', 1.1).value)
+        self.kp_dist = float(self.declare_parameter('kp_dist', 1.35).value)
+        self.kp_lat = float(self.declare_parameter('kp_lat', 1.45).value)
         self.kp_yaw = float(self.declare_parameter('kp_yaw', 0.0).value)
         self.deadzone_dist = float(
-            self.declare_parameter('deadzone_dist', 0.012).value
+            self.declare_parameter('deadzone_dist', 0.015).value
         )
         self.deadzone_lat = float(
-            self.declare_parameter('deadzone_lat', 0.010).value
+            self.declare_parameter('deadzone_lat', 0.012).value
         )
         self.max_joint_step = float(
-            self.declare_parameter('max_joint_step', 0.07).value
+            self.declare_parameter('max_joint_step', 0.10).value
         )
-        self.max_lead = float(self.declare_parameter('max_lead', 0.18).value)
-        self.lpf_alpha = float(self.declare_parameter('lpf_alpha', 0.65).value)
+        self.max_lead = float(self.declare_parameter('max_lead', 0.24).value)
+        self.lpf_alpha = float(self.declare_parameter('lpf_alpha', 0.72).value)
         self.marker_timeout = float(
             self.declare_parameter('marker_timeout', 0.5).value
         )
@@ -245,12 +245,21 @@ class VisualServoingNode(Node):
 
         if abs(err_dist) < self.deadzone_dist:
             err_dist = 0.0
+        else:
+            # Subtract deadzone for smooth transition, scale down small errors to stay calm
+            err_dist -= math.copysign(self.deadzone_dist, err_dist)
         if abs(err_lat) < self.deadzone_lat:
             err_lat = 0.0
+        else:
+            err_lat -= math.copysign(self.deadzone_lat, err_lat)
+
+        # Adaptive damping near target (0.55x when error < 5cm, 1.0x for larger motion)
+        err_mag = math.hypot(err_dist, err_lat)
+        gain_scale = clamp(0.55 + 0.45 * (err_mag / 0.05), 0.55, 1.0)
 
         # End-effector frame displacement (+X forward along camera axis, +Y left)
-        dx_ee = self.kp_dist * err_dist
-        dy_ee = -self.kp_lat * err_lat
+        dx_ee = gain_scale * self.kp_dist * err_dist
+        dy_ee = -gain_scale * self.kp_lat * err_lat
 
         x_ee, y_ee, theta_ee = forward_kinematics(
             self.q1_curr, self.q2_curr, self.l1, self.l2
