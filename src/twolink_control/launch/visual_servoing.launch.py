@@ -33,12 +33,18 @@ def generate_launch_description():
         default_value='false',
         description='Launch Gazebo/RViz and sync robot_state via joint_publisher',
     )
+    use_view_arg = DeclareLaunchArgument(
+        'use_view',
+        default_value='true',
+        description='Open rqt_image_view for /aruco/image',
+    )
 
     port = LaunchConfiguration('port')
     target_distance = LaunchConfiguration('target_distance')
     camera_yaw_offset = LaunchConfiguration('camera_yaw_offset')
     use_camera = LaunchConfiguration('use_camera')
     use_gazebo = LaunchConfiguration('use_gazebo')
+    use_view = LaunchConfiguration('use_view')
 
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -101,16 +107,27 @@ def generate_launch_description():
         condition=IfCondition(use_gazebo),
     )
 
+    image_view_node = Node(
+        package='rqt_image_view',
+        executable='rqt_image_view',
+        name='aruco_image_view',
+        arguments=['/aruco/image'],
+        output='log',
+        condition=IfCondition(use_view),
+    )
+
     return LaunchDescription([
         port_arg,
         target_distance_arg,
         camera_yaw_offset_arg,
         use_camera_arg,
         use_gazebo_arg,
+        use_view_arg,
         realsense_launch,
         aruco_detector_node,
         serial_node,
         visual_servoing_node,
         gazebo_launch,
         joint_publisher_node,
+        image_view_node,
     ])
