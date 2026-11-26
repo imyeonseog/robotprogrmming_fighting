@@ -97,23 +97,24 @@ class VisualServoingNode(Node):
             self.declare_parameter('camera_yaw_offset', 0.0).value
         )
 
-        # Visual servoing control parameters
+        # Visual servoing control parameters (tuned for responsive, smooth tracking)
         self.target_distance = float(
             self.declare_parameter('target_distance', 0.35).value
         )
-        self.kp_dist = float(self.declare_parameter('kp_dist', 0.6).value)
-        self.kp_lat = float(self.declare_parameter('kp_lat', 0.8).value)
-        self.kp_yaw = float(self.declare_parameter('kp_yaw', 0.25).value)
+        self.kp_dist = float(self.declare_parameter('kp_dist', 1.0).value)
+        self.kp_lat = float(self.declare_parameter('kp_lat', 1.1).value)
+        self.kp_yaw = float(self.declare_parameter('kp_yaw', 0.0).value)
         self.deadzone_dist = float(
-            self.declare_parameter('deadzone_dist', 0.015).value
+            self.declare_parameter('deadzone_dist', 0.012).value
         )
         self.deadzone_lat = float(
-            self.declare_parameter('deadzone_lat', 0.012).value
+            self.declare_parameter('deadzone_lat', 0.010).value
         )
         self.max_joint_step = float(
-            self.declare_parameter('max_joint_step', 0.03).value
+            self.declare_parameter('max_joint_step', 0.07).value
         )
-        self.lpf_alpha = float(self.declare_parameter('lpf_alpha', 0.35).value)
+        self.max_lead = float(self.declare_parameter('max_lead', 0.18).value)
+        self.lpf_alpha = float(self.declare_parameter('lpf_alpha', 0.65).value)
         self.marker_timeout = float(
             self.declare_parameter('marker_timeout', 0.5).value
         )
@@ -288,8 +289,20 @@ class VisualServoingNode(Node):
         dq1 = clamp(q1_ik - self.q1_des, -self.max_joint_step, self.max_joint_step)
         dq2 = clamp(q2_ik - self.q2_des, -self.max_joint_step, self.max_joint_step)
 
-        self.q1_des = clamp(self.q1_des + dq1, self.q1_min, self.q1_max)
-        self.q2_des = clamp(self.q2_des + dq2, self.q2_min, self.q2_max)
+        q1_next = self.q1_des + dq1
+        q2_next = self.q2_des + dq2
+
+        # Prevent desired target from running too far ahead of actual robot feedback
+        if self.q1_curr is not None and self.q2_curr is not None:
+            q1_next = clamp(
+                q1_next, self.q1_curr - self.max_lead, self.q1_curr + self.max_lead
+            )
+            q2_next = clamp(
+                q2_next, self.q2_curr - self.max_lead, self.q2_curr + self.max_lead
+            )
+
+        self.q1_des = clamp(q1_next, self.q1_min, self.q1_max)
+        self.q2_des = clamp(q2_next, self.q2_min, self.q2_max)
 
         x_des, y_des, _ = forward_kinematics(
             self.q1_des, self.q2_des, self.l1, self.l2
