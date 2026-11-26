@@ -124,13 +124,13 @@ class VisualServoingNode(Node):
             self.declare_parameter('marker_timeout', 0.5).value
         )
 
-        # Joint safety limits (radians) - wide enough for free tracking while avoiding physical stops
+        # Joint safety limits (radians) - q1 bounded against base/cable lock; q2 free up to +-180 deg
         self.q1_min = float(self.declare_parameter('q1_min', -2.4).value)
         self.q1_max = float(self.declare_parameter('q1_max', 2.4).value)
-        self.q2_min = float(self.declare_parameter('q2_min', 0.10).value)
-        self.q2_max = float(self.declare_parameter('q2_max', 2.75).value)
+        self.q2_min = float(self.declare_parameter('q2_min', -3.14).value)
+        self.q2_max = float(self.declare_parameter('q2_max', 3.14).value)
         self.max_q1_offset = float(self.declare_parameter('max_q1_offset', 1.65).value)
-        self.max_q2_offset = float(self.declare_parameter('max_q2_offset', 1.45).value)
+        self.max_q2_offset = float(self.declare_parameter('max_q2_offset', 3.14).value)
 
         # State variables
         self.q1_init: Optional[float] = None
@@ -182,16 +182,11 @@ class VisualServoingNode(Node):
             self.q2_init = self.q2_curr
             self.q1_des = self.q1_curr
             self.q2_des = self.q2_curr
-            # Dynamically bound safe range around initial home pose
+            # Dynamically bound q1 around initial home pose; allow q2 +-180 deg freely
             self.q1_min = max(self.q1_min, self.q1_init - self.max_q1_offset)
             self.q1_max = min(self.q1_max, self.q1_init + self.max_q1_offset)
-            if self.q2_init < 0.0:
-                # If robot starts with negative elbow angle, keep symmetric negative bounds
-                self.q2_min = max(-2.55, self.q2_init - self.max_q2_offset)
-                self.q2_max = min(-0.20, self.q2_init + self.max_q2_offset)
-            else:
-                self.q2_min = max(self.q2_min, self.q2_init - self.max_q2_offset)
-                self.q2_max = min(self.q2_max, self.q2_init + self.max_q2_offset)
+            self.q2_min = max(self.q2_min, self.q2_init - self.max_q2_offset)
+            self.q2_max = min(self.q2_max, self.q2_init + self.max_q2_offset)
             self.get_logger().info(
                 f'Initialized from robot_state: q1={self.q1_curr:.3f} '
                 f'[{self.q1_min:.2f}, {self.q1_max:.2f}], '
@@ -272,14 +267,25 @@ class VisualServoingNode(Node):
         x_target = x_ee + dx_base
         y_target = y_ee + dy_base
 
-        elbow_sign = 1.0 if self.q2_curr >= 0.0 else -1.0
-        q1_ik, q2_ik = inverse_kinematics(
-            x_target, y_target, self.l1, self.l2, elbow_sign=elbow_sign
-        )
+        # Evaluate both elbow configurations; prefer current elbow side unless q1 would hit limit
+        pref_sign = 1.0 if self.q2_curr >= 0.0 else -1.0
+        candidates = []
+        for sign in (pref_sign, -pref_sign):
+            q1_c, q2_c = inverse_kinematics(
+                x_target, y_target, self.l1, self.l2, elbow_sign=sign
+            )
+            q1_c = nearest_angle(q1_c, self.q1_curr)
+            q2_c = nearest_angle(q2_c, self.q2_curr)
+            in_bounds = (
+                self.q1_min <= q1_c <= self.q1_max
+                and self.q2_min <= q2_c <= self.q2_max
+            )
+            candidates.append((in_bounds, q1_c, q2_c))
 
-        # Unwrap IK solution to closest continuous angle relative to current joint angle
-        q1_ik = nearest_angle(q1_ik, self.q1_curr)
-        q2_ik = nearest_angle(q2_ik, self.q2_curr)
+        if candidates[0][0] or not candidates[1][0]:
+            _, q1_ik, q2_ik = candidates[0]
+        else:
+            _, q1_ik, q2_ik = candidates[1]
 
         # Optional gentle yaw alignment coupling on joint1
         q1_ik = clamp(
