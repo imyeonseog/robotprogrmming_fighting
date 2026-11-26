@@ -104,7 +104,7 @@ class VisualServoingNode(Node):
 
         # Visual servoing control parameters (tuned for responsive, smooth tracking)
         self.target_distance = float(
-            self.declare_parameter('target_distance', 0.35).value
+            self.declare_parameter('target_distance', 0.20).value
         )
         self.kp_dist = float(self.declare_parameter('kp_dist', 1.0).value)
         self.kp_lat = float(self.declare_parameter('kp_lat', 1.1).value)

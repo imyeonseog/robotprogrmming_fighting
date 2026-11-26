@@ -15,7 +15,7 @@ def generate_launch_description():
     )
     target_distance_arg = DeclareLaunchArgument(
         'target_distance',
-        default_value='0.35',
+        default_value='0.20',
         description='Desired distance to ArUco marker in meters',
     )
     camera_yaw_offset_arg = DeclareLaunchArgument(
