@@ -1,0 +1,27 @@
+# ROS 2 build directories
+build/
+install/
+log/
+
+# External git repositories in workspace root
+usb_cam/
+
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# IDE & Editor settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.swp
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
