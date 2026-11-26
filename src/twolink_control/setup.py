@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'command_node = twolink_control.keyboard_command:main', 
             'serial_node = twolink_control.serial_interface:main', 
+            'visual_servoing_node = twolink_control.visual_servoing:main',
         ],
     },
 )
