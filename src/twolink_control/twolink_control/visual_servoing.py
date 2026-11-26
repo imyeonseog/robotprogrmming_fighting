@@ -124,13 +124,13 @@ class VisualServoingNode(Node):
             self.declare_parameter('marker_timeout', 0.5).value
         )
 
-        # Joint safety limits (radians) - relative to initial pose to prevent cable/base lock
-        self.q1_min = float(self.declare_parameter('q1_min', -1.5).value)
-        self.q1_max = float(self.declare_parameter('q1_max', 1.5).value)
-        self.q2_min = float(self.declare_parameter('q2_min', 0.20).value)
-        self.q2_max = float(self.declare_parameter('q2_max', 2.55).value)
-        self.max_q1_offset = float(self.declare_parameter('max_q1_offset', 1.25).value)
-        self.max_q2_offset = float(self.declare_parameter('max_q2_offset', 1.15).value)
+        # Joint safety limits (radians) - wide enough for free tracking while avoiding physical stops
+        self.q1_min = float(self.declare_parameter('q1_min', -2.4).value)
+        self.q1_max = float(self.declare_parameter('q1_max', 2.4).value)
+        self.q2_min = float(self.declare_parameter('q2_min', 0.10).value)
+        self.q2_max = float(self.declare_parameter('q2_max', 2.75).value)
+        self.max_q1_offset = float(self.declare_parameter('max_q1_offset', 1.65).value)
+        self.max_q2_offset = float(self.declare_parameter('max_q2_offset', 1.45).value)
 
         # State variables
         self.q1_init: Optional[float] = None
