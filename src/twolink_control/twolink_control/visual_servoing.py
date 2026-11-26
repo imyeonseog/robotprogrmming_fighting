@@ -102,13 +102,15 @@ class VisualServoingNode(Node):
         self.camera_yaw_offset = float(
             self.declare_parameter('camera_yaw_offset', 0.0).value
         )
+        self.q1_sign = float(self.declare_parameter('q1_sign', 1.0).value)
+        self.q2_sign = float(self.declare_parameter('q2_sign', 1.0).value)
 
         # Visual servoing control parameters (fast response + calm near target)
         self.target_distance = float(
             self.declare_parameter('target_distance', 0.20).value
         )
-        self.kp_dist = float(self.declare_parameter('kp_dist', 1.35).value)
-        self.kp_lat = float(self.declare_parameter('kp_lat', 1.45).value)
+        self.kp_dist = float(self.declare_parameter('kp_dist', 1.8).value)
+        self.kp_lat = float(self.declare_parameter('kp_lat', 0.9).value)
         self.kp_yaw = float(self.declare_parameter('kp_yaw', 0.0).value)
         self.deadzone_dist = float(
             self.declare_parameter('deadzone_dist', 0.015).value
@@ -228,7 +230,12 @@ class VisualServoingNode(Node):
         self.last_marker_time = time.monotonic()
 
     def compute_target_joints(self) -> Optional[Tuple[float, float]]:
-        """Compute bounded desired joint angles (q1_raw, q2_raw) from marker pose."""
+        """
+        Compute bounded desired joint angles for Yaw-Pitch twolink arm.
+
+        - Joint 1 (vertical Yaw axis): aligns marker horizontally to center (x_cam -> 0).
+        - Joint 2 (horizontal Pitch axis): adjusts reach for target_distance (z_cam -> d_des).
+        """
         if (
             self.q1_curr is None
             or self.q2_curr is None
@@ -247,8 +254,8 @@ class VisualServoingNode(Node):
         if abs(err_dist) < self.deadzone_dist:
             err_dist = 0.0
         else:
-            # Subtract deadzone for smooth transition, scale down small errors to stay calm
             err_dist -= math.copysign(self.deadzone_dist, err_dist)
+
         if abs(err_lat) < self.deadzone_lat:
             err_lat = 0.0
         else:
@@ -258,38 +265,17 @@ class VisualServoingNode(Node):
         err_mag = math.hypot(err_dist, err_lat)
         gain_scale = clamp(0.55 + 0.45 * (err_mag / 0.05), 0.55, 1.0)
 
-        # End-effector frame displacement (+X forward along camera axis, +Y left)
-        dx_ee = gain_scale * self.kp_dist * err_dist
-        dy_ee = -gain_scale * self.kp_lat * err_lat
+        # Horizontal angular error in camera frame (+x_cam is right -> turn right = -Z yaw)
+        yaw_err = math.atan2(err_lat, max(self.filtered_z_cam, 0.05))
+        q1_target = self.q1_curr - self.q1_sign * gain_scale * self.kp_lat * yaw_err
 
-        x_ee, y_ee, theta_ee = forward_kinematics(
-            self.q1_curr, self.q2_curr, self.l1, self.l2
-        )
-        theta_cam = theta_ee + self.camera_yaw_offset
+        # Pitch joint adjusts forward/backward distance to marker
+        pitch_delta = err_dist / max(self.l2, 0.05)
+        q2_target = self.q2_curr + self.q2_sign * gain_scale * self.kp_dist * pitch_delta
 
-        dx_base = math.cos(theta_cam) * dx_ee - math.sin(theta_cam) * dy_ee
-        dy_base = math.sin(theta_cam) * dx_ee + math.cos(theta_cam) * dy_ee
-
-        x_target = x_ee + dx_base
-        y_target = y_ee + dy_base
-
-        elbow_sign = 1.0 if self.q2_curr >= 0.0 else -1.0
-        q1_ik, q2_ik = inverse_kinematics(
-            x_target, y_target, self.l1, self.l2, elbow_sign=elbow_sign
-        )
-
-        # Unwrap IK solution to closest continuous angle relative to current joint angle
-        q1_ik = nearest_angle(q1_ik, self.q1_curr)
-        q2_ik = nearest_angle(q2_ik, self.q2_curr)
-
-        # Optional gentle yaw alignment coupling on joint1
-        q1_ik = clamp(
-            q1_ik - self.kp_yaw * self.filtered_yaw_err * 0.1,
-            self.q1_min,
-            self.q1_max,
-        )
-        q2_ik = clamp(q2_ik, self.q2_min, self.q2_max)
-        return q1_ik, q2_ik
+        q1_target = clamp(q1_target, self.q1_min, self.q1_max)
+        q2_target = clamp(q2_target, self.q2_min, self.q2_max)
+        return q1_target, q2_target
 
     def publish_marker_viz(self, x_target: float, y_target: float) -> None:
         """Publish target marker visualization in base_link frame for RViz."""
