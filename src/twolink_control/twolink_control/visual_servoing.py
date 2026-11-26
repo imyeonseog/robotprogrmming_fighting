@@ -22,6 +22,11 @@ def wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
+def nearest_angle(target: float, reference: float) -> float:
+    """Return the angle equivalent to target closest to reference (avoids 360-deg jumps)."""
+    return reference + wrap_angle(target - reference)
+
+
 def forward_kinematics(
     q1: float, q2: float, l1: float, l2: float
 ) -> Tuple[float, float, float]:
@@ -119,13 +124,17 @@ class VisualServoingNode(Node):
             self.declare_parameter('marker_timeout', 0.5).value
         )
 
-        # Joint safety limits (radians)
-        self.q1_min = float(self.declare_parameter('q1_min', -1.8).value)
-        self.q1_max = float(self.declare_parameter('q1_max', 1.8).value)
-        self.q2_min = float(self.declare_parameter('q2_min', 0.15).value)
-        self.q2_max = float(self.declare_parameter('q2_max', 2.6).value)
+        # Joint safety limits (radians) - relative to initial pose to prevent cable/base lock
+        self.q1_min = float(self.declare_parameter('q1_min', -1.5).value)
+        self.q1_max = float(self.declare_parameter('q1_max', 1.5).value)
+        self.q2_min = float(self.declare_parameter('q2_min', 0.20).value)
+        self.q2_max = float(self.declare_parameter('q2_max', 2.55).value)
+        self.max_q1_offset = float(self.declare_parameter('max_q1_offset', 1.25).value)
+        self.max_q2_offset = float(self.declare_parameter('max_q2_offset', 1.15).value)
 
         # State variables
+        self.q1_init: Optional[float] = None
+        self.q2_init: Optional[float] = None
         self.q1_curr: Optional[float] = None
         self.q2_curr: Optional[float] = None
         self.q1_des: Optional[float] = None
@@ -169,10 +178,24 @@ class VisualServoingNode(Node):
         self.q1_curr = q1
         self.q2_curr = q2
         if self.q1_des is None or self.q2_des is None:
+            self.q1_init = self.q1_curr
+            self.q2_init = self.q2_curr
             self.q1_des = self.q1_curr
             self.q2_des = self.q2_curr
+            # Dynamically bound safe range around initial home pose
+            self.q1_min = max(self.q1_min, self.q1_init - self.max_q1_offset)
+            self.q1_max = min(self.q1_max, self.q1_init + self.max_q1_offset)
+            if self.q2_init < 0.0:
+                # If robot starts with negative elbow angle, keep symmetric negative bounds
+                self.q2_min = max(-2.55, self.q2_init - self.max_q2_offset)
+                self.q2_max = min(-0.20, self.q2_init + self.max_q2_offset)
+            else:
+                self.q2_min = max(self.q2_min, self.q2_init - self.max_q2_offset)
+                self.q2_max = min(self.q2_max, self.q2_init + self.max_q2_offset)
             self.get_logger().info(
-                f'Initialized from robot_state: q1={self.q1_curr:.3f}, q2={self.q2_curr:.3f}'
+                f'Initialized from robot_state: q1={self.q1_curr:.3f} '
+                f'[{self.q1_min:.2f}, {self.q1_max:.2f}], '
+                f'q2={self.q2_curr:.3f} [{self.q2_min:.2f}, {self.q2_max:.2f}]'
             )
 
     def aruco_pose_callback(self, msg: Pose) -> None:
@@ -244,6 +267,10 @@ class VisualServoingNode(Node):
         q1_ik, q2_ik = inverse_kinematics(
             x_target, y_target, self.l1, self.l2, elbow_sign=elbow_sign
         )
+
+        # Unwrap IK solution to closest continuous angle relative to current joint angle
+        q1_ik = nearest_angle(q1_ik, self.q1_curr)
+        q2_ik = nearest_angle(q2_ik, self.q2_curr)
 
         # Optional gentle yaw alignment coupling on joint1
         q1_ik = clamp(

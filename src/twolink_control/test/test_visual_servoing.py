@@ -4,6 +4,7 @@ from twolink_control.visual_servoing import (
     forward_kinematics,
     inverse_kinematics,
     marker_yaw_error,
+    nearest_angle,
 )
 
 
@@ -28,3 +29,11 @@ def test_marker_yaw_error_head_on():
     # Rotation of 180 deg around X maps marker +Z to -Z_cam (head-on facing camera)
     err = marker_yaw_error(1.0, 0.0, 0.0, 0.0)
     assert math.isclose(err, 0.0, abs_tol=1e-6)
+
+
+def test_nearest_angle_avoids_wrap_jump():
+    # Crossing the -pi / +pi boundary should move +0.2 rad, not -6.08 rad
+    ref = 3.05
+    target = -3.0331853  # 3.25 wrapped to [-pi, pi]
+    unwrapped = nearest_angle(target, ref)
+    assert math.isclose(unwrapped, 3.25, abs_tol=1e-5)
